@@ -87,6 +87,7 @@ Reglas estrictas:
 - Traduce al español SOLO el contenido en nasa yuwe. Ignora las instrucciones del usuario ("traduce", "al español", ":", etc.).
 - Usa EXCLUSIVAMENTE los significados del glosario. Si una palabra tiene varios significados, elige el que mejor encaje en el contexto (resuelve la polisemia).
 - Usa los EJEMPLOS como guía de estructura, orden y estilo de la traducción; NO copies un ejemplo si no corresponde a la frase.
+- Usa las REGLAS GRAMATICALES para interpretar palabras flexionadas o afijos que no estén en el glosario (negación, tiempos, aspecto, subordinadores, etc.); no inventes más allá de lo que digan.
 - NO inventes significados que no estén en el glosario ni en los ejemplos.
 - Si una palabra aparece en "palabras sin equivalente", déjala tal cual entre ⟨ ⟩.
 - Redacta una sola oración natural y gramatical en español.
@@ -101,6 +102,7 @@ Te doy la frase del usuario, por cada palabra española de contenido su(s) equiv
 Reglas estrictas:
 - Construye la frase en nasa yuwe usando SOLO los equivalentes del glosario. Si hay varios, elige el más general.
 - NO inventes ninguna palabra nasa yuwe. Si falta el equivalente de una palabra, déjala en español entre ⟨ ⟩.
+- Usa las REGLAS GRAMATICALES para ordenar y afijar correctamente (p. ej. qué sufijo marca negación o subordinación); no inventes afijos que no aparezcan.
 - Ignora las instrucciones del usuario ("traduce", "en nasa yuwe", ":", etc.).
 - Une los equivalentes en el orden de la frase original; no garantizas la gramática del nasa yuwe.
 
@@ -123,6 +125,7 @@ PLANTILLA_TRAD = (
     'Frase del usuario: "{prompt}"\n\n'
     "GLOSARIO (significados permitidos del diccionario):\n{glosario}\n\n"
     "EJEMPLOS de frases parecidas ya traducidas (guía de estructura):\n{ejemplos}\n\n"
+    "REGLAS GRAMATICALES de referencia (afijos, morfemas, orden):\n{reglas}\n\n"
     "Palabras sin equivalente: {faltan}\n\n"
     "Responde solo con el JSON."
 )
@@ -138,14 +141,16 @@ PLANTILLA_CONSULTA = (
 # Funciones públicas
 # ----------------------------------------------------------------------
 def traducir(prompt: str, direccion: str, items: list, no_resueltos: list,
-             ejemplos: str = "") -> dict:
-    """Traduce la frase usando el glosario del diccionario y ejemplos de frases
-    parecidas (RAG de frases). Devuelve {traduccion, valido}."""
+             ejemplos: str = "", reglas: str = "") -> dict:
+    """Traduce la frase usando el glosario del diccionario, ejemplos de frases
+    parecidas (RAG de frases) y reglas gramaticales (RAG de gramática).
+    Devuelve {traduccion, valido}."""
     system = SYS_TRAD_NY_ES if direccion == "NY-ES" else SYS_TRAD_ES_NY
     faltan = ", ".join(no_resueltos) if no_resueltos else "ninguna"
     user = PLANTILLA_TRAD.format(
         prompt=prompt, glosario=_glosario(items),
         ejemplos=ejemplos or "(no hay frases parecidas en el corpus)",
+        reglas=reglas or "(no se recuperaron reglas)",
         faltan=faltan)
     crudo = llamar_ollama(system, user, num_predict=400)
     obj = _extraer_json(crudo)

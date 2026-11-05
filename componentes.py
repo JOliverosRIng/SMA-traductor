@@ -29,6 +29,10 @@ try:
     import recuperador_frases                      # RAG de frases (ejemplos); requiere scikit-learn
 except Exception:
     recuperador_frases = None
+try:
+    import recuperador_gramatica                   # RAG de gramática (reglas); requiere scikit-learn
+except Exception:
+    recuperador_gramatica = None
 
 
 # ======================================================================
@@ -172,9 +176,22 @@ def c_ensamblador(ctx: ContextoTraduccion) -> ContextoTraduccion:
         except Exception as e:
             ctx.registrar("recuperador_frases", f"no disponible: {e}")
 
+    # RAG de gramática: recuperar reglas (afijos, morfemas) relacionadas.
+    reglas = ""
+    if recuperador_gramatica is not None:
+        try:
+            glosas = " ".join(it["candidatos"][0] for it in items if it["candidatos"])
+            consulta_g = (_texto_origen(ctx) + " " + glosas).strip() or ctx.prompt
+            reglas = recuperador_gramatica.reglas_para_prompt(consulta_g, k=2)
+            if reglas:
+                ctx.registrar("recuperador_gramatica",
+                              f"{reglas.count('### ')} regla(s) recuperada(s)")
+        except Exception as e:
+            ctx.registrar("recuperador_gramatica", f"no disponible: {e}")
+
     try:
         r = agente_traductor.traducir(ctx.prompt, direccion, items,
-                                      ctx.no_resueltos, ejemplos)
+                                      ctx.no_resueltos, ejemplos, reglas)
     except Exception as e:
         r = {"valido": False, "error": str(e)}
     if r.get("valido"):
