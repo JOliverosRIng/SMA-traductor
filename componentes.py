@@ -2,27 +2,34 @@
 COMPONENTES del sistema multiagente (adaptadores sobre el estado compartido).
 Proyecto: Traductor Nasa Yuwe (NY) <-> Español (ES).
 
-Estado de cada componente en esta versión base:
-  - SEGMENTADOR -> REAL  (determinista)
-  - TRADUCTOR   -> REAL por diccionario (coincidencia exacta, ambas direcciones)
-  - DETECTOR    -> STUB (heurística; el definitivo usa Qwen/Ollama)
-  - ENSAMBLADOR -> base (reconstruye la oración)
-  - REVISOR     -> base (aprueba)
-  - RAZONADOR   -> base (presenta la respuesta de una consulta)
+Estado de cada componente en esta versión (pipeline de traducción completo):
+  - DETECTOR    -> REAL (Qwen vía Ollama) con respaldo heurístico.
+  - SEGMENTADOR -> REAL (determinista).
+  - TRADUCTOR   -> REAL: herramienta de diccionario que entrega CANDIDATOS.
+  - ENSAMBLADOR -> AGENTE con LLM: redacta la traducción eligiendo el sentido
+                   correcto (polisemia), anclado al diccionario; respaldo
+                   determinista si Ollama no está.
+  - REVISOR     -> base (aprueba).
+  - RAZONADOR   -> AGENTE con LLM: responde consultas en español, anclado al
+                   diccionario; respaldo determinista si Ollama no está.
 
-Todo corre SIN Ollama. El Detector real se activa cambiando c_detector por una
-llamada a detector.detectar() cuando tengas Ollama.
+Principio: el LLM nunca inventa nasa yuwe. El diccionario es la fuente de verdad;
+el LLM solo razona en español y ensambla usando los candidatos que recibe.
+
+Si Ollama no está disponible, TODO sigue corriendo con los respaldos.
 """
 
 import re
 from estado import ContextoTraduccion
 from segmentador import segmentar
 from traductor import traducir_token
-from detector import detectar as detectar_llm   # Detector real (Qwen vía Ollama)
+from detector import detectar as detectar_llm      # Detector real (Qwen)
+import agente_traductor                            # Ensamblador/Razonador (Qwen)
 
-# ----------------------------------------------------------------------
-# DETECTOR — REAL (Qwen vía Ollama) con respaldo heurístico
-# ----------------------------------------------------------------------
+
+# ======================================================================
+# DETECTOR — REAL (Qwen) con respaldo heurístico
+# ======================================================================
 def _detector_heuristico(ctx: ContextoTraduccion) -> ContextoTraduccion:
     """Respaldo: se usa solo si el modelo falla o no está disponible."""
     t = ctx.prompt.lower()
@@ -44,31 +51,32 @@ def _detector_heuristico(ctx: ContextoTraduccion) -> ContextoTraduccion:
 
 def c_detector(ctx: ContextoTraduccion) -> ContextoTraduccion:
     try:
-        r = detectar_llm(ctx.prompt)          # pregunta al modelo real
+        r = detectar_llm(ctx.prompt)                 # pregunta al modelo real
     except Exception as e:
-        r = {"valido": False, "error": str(e)}  # Ollama apagado, timeout, etc.
+        r = {"valido": False, "error": str(e)}       # Ollama apagado, timeout, etc.
     if r.get("valido"):
         ctx.intencion = r["intencion"]
         ctx.direccion = r["direccion"]
         ctx.registrar("detector(Qwen)", f"{ctx.intencion} / {ctx.direccion}")
     else:
-        _detector_heuristico(ctx)             # respaldo
+        _detector_heuristico(ctx)                    # respaldo
         motivo = r.get("error", "salida inválida del modelo")
         ctx.registrar("detector(respaldo)", f"{ctx.intencion} / {ctx.direccion} [{motivo}]")
     return ctx
 
-# ----------------------------------------------------------------------
+
+# ======================================================================
 # SEGMENTADOR — REAL
-# ----------------------------------------------------------------------
+# ======================================================================
 def c_segmentador(ctx: ContextoTraduccion) -> ContextoTraduccion:
     ctx.segmentos = segmentar(ctx.prompt)["segmentos"]
     ctx.registrar("segmentador", f"{len(ctx.segmentos)} tokens etiquetados")
     return ctx
 
 
-# ----------------------------------------------------------------------
-# TRADUCTOR — REAL por diccionario (ambas direcciones)
-# ----------------------------------------------------------------------
+# ======================================================================
+# TRADUCTOR — herramienta de diccionario (entrega CANDIDATOS por token)
+# ======================================================================
 def c_traductor(ctx: ContextoTraduccion) -> ContextoTraduccion:
     direccion = ctx.direccion or "NY-ES"
     idioma_origen = "NY" if direccion == "NY-ES" else "ES"
@@ -88,21 +96,34 @@ def c_traductor(ctx: ContextoTraduccion) -> ContextoTraduccion:
             s["resuelto"] = False
             ctx.no_resueltos.append(s["texto"])
             pend += 1
-    ctx.registrar("traductor", f"{ok} traducidos, {pend} sin resolver")
+    ctx.registrar("traductor", f"{ok} con candidatos, {pend} sin resolver")
     return ctx
 
 
-# ----------------------------------------------------------------------
-# ENSAMBLADOR — base
-# ----------------------------------------------------------------------
+def _items_para_llm(ctx: ContextoTraduccion):
+    """Arma el glosario (candidatos del diccionario) para los tokens del idioma origen."""
+    direccion = ctx.direccion or "NY-ES"
+    origen = "NY" if direccion == "NY-ES" else "ES"
+    items = []
+    for s in ctx.segmentos:
+        if s.get("idioma") == origen and s.get("resuelto"):
+            candidatos = [s["traduccion"]] + list(s.get("alternativas") or [])
+            items.append({"origen": s["texto"], "candidatos": candidatos})
+    return items
+
+
+# ======================================================================
+# ENSAMBLADOR — AGENTE con LLM (respaldo determinista)
+# ======================================================================
 def _unir(partes):
-    texto = " ".join(partes)
+    texto = " ".join(p for p in partes if p)
     texto = re.sub(r"\s+([,.;:!?])", r"\1", texto)
     texto = re.sub(r"([¿¡])\s+", r"\1", texto)
     return texto.strip()
 
 
-def c_ensamblador(ctx: ContextoTraduccion) -> ContextoTraduccion:
+def _ensamblar_respaldo(ctx: ContextoTraduccion) -> None:
+    """Ensamblaje determinista palabra por palabra (sin LLM)."""
     direccion = ctx.direccion or "NY-ES"
     idioma_origen = "NY" if direccion == "NY-ES" else "ES"
     partes = []
@@ -111,37 +132,69 @@ def c_ensamblador(ctx: ContextoTraduccion) -> ContextoTraduccion:
             if s.get("resuelto"):
                 partes.append(s["traduccion"])
             else:
-                partes.append(f"⟨{s['texto']}?⟩")   # no encontrado
+                partes.append(f"⟨{s['texto']}?⟩")
         else:
-            partes.append(s["texto"])                # contexto / signos
+            partes.append(s["texto"])
     ctx.texto_ensamblado = _unir(partes)
-    ctx.registrar("ensamblador", "oración reconstruida")
+
+
+def c_ensamblador(ctx: ContextoTraduccion) -> ContextoTraduccion:
+    # En consultas no gastamos el LLM aquí: el Razonador produce la respuesta.
+    if ctx.intencion == "consultar":
+        _ensamblar_respaldo(ctx)
+        ctx.registrar("ensamblador", "ensamblaje base (la consulta la responde el razonador)")
+        return ctx
+
+    # Traducción: el agente LLM redacta, anclado al diccionario.
+    items = _items_para_llm(ctx)
+    try:
+        r = agente_traductor.traducir(ctx.prompt, ctx.direccion or "NY-ES",
+                                      items, ctx.no_resueltos)
+    except Exception as e:
+        r = {"valido": False, "error": str(e)}
+    if r.get("valido"):
+        ctx.texto_ensamblado = r["traduccion"]
+        ctx.registrar("ensamblador(Qwen)", "traducción redactada por el modelo")
+    else:
+        _ensamblar_respaldo(ctx)
+        ctx.registrar("ensamblador(respaldo)", r.get("error", "modelo no disponible"))
     return ctx
 
 
-# ----------------------------------------------------------------------
+# ======================================================================
 # REVISOR — base
-# ----------------------------------------------------------------------
+# ======================================================================
 def c_revisor(ctx: ContextoTraduccion) -> ContextoTraduccion:
     ctx.veredicto = "ok"
     ctx.registrar("revisor", "aprobado")
     return ctx
 
 
-# ----------------------------------------------------------------------
-# RAZONADOR — base (rama de consulta)
-# ----------------------------------------------------------------------
-def c_razonador(ctx: ContextoTraduccion) -> ContextoTraduccion:
-    # arma una respuesta mostrando las equivalencias encontradas y sus alternativas
+# ======================================================================
+# RAZONADOR — AGENTE con LLM (rama de consulta), respaldo determinista
+# ======================================================================
+def _razonar_respaldo(ctx: ContextoTraduccion) -> None:
+    """Respuesta determinista: lista 'palabra = significado(s)'."""
+    direccion = ctx.direccion or "NY-ES"
+    origen = "NY" if direccion == "NY-ES" else "ES"
     piezas = []
-    origen = "NY" if (ctx.direccion or "NY-ES") == "NY-ES" else "ES"
     for s in ctx.segmentos:
         if s.get("idioma") == origen and s.get("resuelto"):
             alt = f" (otros: {', '.join(s['alternativas'])})" if s.get("alternativas") else ""
             piezas.append(f"{s['texto']} = {s['traduccion']}{alt}")
-    if piezas:
-        ctx.respuesta_final = "; ".join(piezas)
+    ctx.respuesta_final = "; ".join(piezas) if piezas else (ctx.texto_ensamblado or "Sin resultados.")
+
+
+def c_razonador(ctx: ContextoTraduccion) -> ContextoTraduccion:
+    items = _items_para_llm(ctx)
+    try:
+        r = agente_traductor.explicar(ctx.prompt, ctx.direccion or "NY-ES", items)
+    except Exception as e:
+        r = {"valido": False, "error": str(e)}
+    if r.get("valido"):
+        ctx.respuesta_final = r["respuesta"]
+        ctx.registrar("razonador(Qwen)", "explicación redactada por el modelo")
     else:
-        ctx.respuesta_final = ctx.texto_ensamblado
-    ctx.registrar("razonador", "respuesta construida")
+        _razonar_respaldo(ctx)
+        ctx.registrar("razonador(respaldo)", r.get("error", "modelo no disponible"))
     return ctx
