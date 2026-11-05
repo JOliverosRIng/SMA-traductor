@@ -1,0 +1,22 @@
+[
+  {"prompt": "¿qué significa çxhãçxha?", "intencion": "consultar", "direccion": "NY-ES"},
+  {"prompt": "cómo se dice buenos días en nasa yuwe", "intencion": "consultar", "direccion": "ES-NY"},
+  {"prompt": "traduce al español: ũskatã", "intencion": "traducir", "direccion": "NY-ES"},
+  {"prompt": "quiero decir 'gracias' en nasa yuwe", "intencion": "consultar", "direccion": "ES-NY"},
+  {"prompt": "traduce 'la casa es grande' al nasa yuwe", "intencion": "traducir", "direccion": "ES-NY"},
+  {"prompt": "qué quiere decir esta frase: nasa yuwe txãwẽ", "intencion": "consultar", "direccion": "NY-ES"},
+  {"prompt": "pasa esto a español: kĩwe u'jusa", "intencion": "traducir", "direccion": "NY-ES"},
+  {"prompt": "cómo se escribe agua en la lengua nasa", "intencion": "consultar", "direccion": "ES-NY"},
+  {"prompt": "traduce el siguiente texto nasa yuwe: we'wenxi", "intencion": "traducir", "direccion": "NY-ES"},
+  {"prompt": "necesito la traducción al español de: pkhakhe", "intencion": "traducir", "direccion": "NY-ES"},
+  {"prompt": "dime el significado de vxiçx", "intencion": "consultar", "direccion": "NY-ES"},
+  {"prompt": "quiero aprender a decir 'buenos días' en nasa", "intencion": "consultar", "direccion": "ES-NY"},
+  {"prompt": "convierte 'gracias por todo' al nasa yuwe", "intencion": "traducir", "direccion": "ES-NY"},
+  {"prompt": "qué significa ũus en español", "intencion": "consultar", "direccion": "NY-ES"},
+  {"prompt": "traduce del nasa yuwe al español: eena", "intencion": "traducir", "direccion": "NY-ES"},
+  {"prompt": "cómo digo 'mi familia' en nasa yuwe", "intencion": "consultar", "direccion": "ES-NY"},
+  {"prompt": "traducir al español esta palabra: thẽ'j", "intencion": "traducir", "direccion": "NY-ES"},
+  {"prompt": "significado de la palabra çxab en castellano", "intencion": "consultar", "direccion": "NY-ES"},
+  {"prompt": "escribe 'el niño corre' en nasa yuwe por favor", "intencion": "traducir", "direccion": "ES-NY"},
+  {"prompt": "qué es 'a'te' en español", "intencion": "consultar", "direccion": "NY-ES"}
+]

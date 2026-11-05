@@ -1,0 +1,50 @@
+[
+  {
+    "prompt": "¿qué significa çxhãçxha?",
+    "esperado": ["SIGNO", "ES", "ES", "NY", "SIGNO"]
+  },
+  {
+    "prompt": "traduce al español: ũskatã",
+    "esperado": ["ES", "ES", "ES", "SIGNO", "NY"]
+  },
+  {
+    "prompt": "dhjhdsjja que significa",
+    "esperado": ["DESCONOCIDO", "ES", "ES"]
+  },
+  {
+    "prompt": "cómo se dice casa en nasa yuwe",
+    "esperado": ["ES", "ES", "ES", "ES", "ES", "ES", "ES"]
+  },
+  {
+    "prompt": "qué quiere decir kĩwe",
+    "esperado": ["ES", "ES", "ES", "NY"]
+  },
+  {
+    "prompt": "pasa esto a español: we'wenxi",
+    "esperado": ["ES", "ES", "ES", "ES", "SIGNO", "NY"]
+  },
+  {
+    "prompt": "el niño corre rápido",
+    "esperado": ["ES", "ES", "ES", "ES"]
+  },
+  {
+    "prompt": "significado de vxiçx en castellano",
+    "esperado": ["ES", "ES", "NY", "ES", "ES"]
+  },
+  {
+    "prompt": "traduce thẽ'j al español",
+    "esperado": ["ES", "NY", "ES", "ES"]
+  },
+  {
+    "prompt": "tengo 3 hijos y una casa",
+    "esperado": ["ES", "SIGNO", "ES", "ES", "ES", "ES"]
+  },
+  {
+    "prompt": "qué es a'te",
+    "esperado": ["ES", "ES", "NY"]
+  },
+  {
+    "prompt": "zzxkptr no es nada",
+    "esperado": ["DESCONOCIDO", "ES", "ES", "ES"]
+  }
+]

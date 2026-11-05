@@ -1,0 +1,10 @@
+# El SISTEMA (segmentador, traductor por diccionario, orquestador, main) NO
+# requiere librerías externas: funciona con Python 3.8+ y la biblioteca estándar.
+#
+# El DETECTOR real usa Ollama (servidor local), que se instala aparte
+# (ollama.com) — no es un paquete de Python.
+#
+# Lo siguiente SOLO hace falta si vas a regenerar los datos desde el Excel
+# (scripts de preparacion que leen el .xlsx):
+pandas>=1.5
+openpyxl>=3.0
