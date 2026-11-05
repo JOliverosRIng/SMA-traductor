@@ -25,6 +25,10 @@ from segmentador import segmentar
 from traductor import traducir_token
 from detector import detectar as detectar_llm      # Detector real (Qwen)
 import agente_traductor                            # Ensamblador/Razonador (Qwen)
+try:
+    import recuperador_frases                      # RAG de frases (ejemplos); requiere scikit-learn
+except Exception:
+    recuperador_frases = None
 
 
 # ======================================================================
@@ -112,6 +116,13 @@ def _items_para_llm(ctx: ContextoTraduccion):
     return items
 
 
+def _texto_origen(ctx: ContextoTraduccion) -> str:
+    """Une los tokens del idioma de origen (el contenido a traducir), para el RAG de frases."""
+    direccion = ctx.direccion or "NY-ES"
+    origen = "NY" if direccion == "NY-ES" else "ES"
+    return " ".join(s["texto"] for s in ctx.segmentos if s.get("idioma") == origen)
+
+
 # ======================================================================
 # ENSAMBLADOR — AGENTE con LLM (respaldo determinista)
 # ======================================================================
@@ -145,11 +156,25 @@ def c_ensamblador(ctx: ContextoTraduccion) -> ContextoTraduccion:
         ctx.registrar("ensamblador", "ensamblaje base (la consulta la responde el razonador)")
         return ctx
 
-    # Traducción: el agente LLM redacta, anclado al diccionario.
+    # Traducción: el agente LLM redacta, anclado al diccionario + ejemplos del RAG.
+    direccion = ctx.direccion or "NY-ES"
     items = _items_para_llm(ctx)
+
+    # RAG de frases: recuperar ejemplos parecidos del corpus (si está disponible).
+    ejemplos = ""
+    if recuperador_frases is not None:
+        try:
+            consulta = _texto_origen(ctx) or ctx.prompt
+            ejemplos = recuperador_frases.ejemplos_para_prompt(consulta, direccion, k=3)
+            if ejemplos:
+                ctx.registrar("recuperador_frases",
+                              f"{ejemplos.count(chr(10)) + 1} ejemplo(s) recuperado(s)")
+        except Exception as e:
+            ctx.registrar("recuperador_frases", f"no disponible: {e}")
+
     try:
-        r = agente_traductor.traducir(ctx.prompt, ctx.direccion or "NY-ES",
-                                      items, ctx.no_resueltos)
+        r = agente_traductor.traducir(ctx.prompt, direccion, items,
+                                      ctx.no_resueltos, ejemplos)
     except Exception as e:
         r = {"valido": False, "error": str(e)}
     if r.get("valido"):

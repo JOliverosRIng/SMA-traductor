@@ -81,12 +81,13 @@ def _glosario(items: list) -> str:
 # Prompts del sistema (uno por dirección y tarea)
 # ----------------------------------------------------------------------
 SYS_TRAD_NY_ES = """Eres un TRADUCTOR de nasa yuwe (NY) a español (ES).
-Te doy la frase del usuario y un GLOSARIO con el significado en español de cada palabra nasa yuwe (de un diccionario validado).
+Te doy la frase del usuario, un GLOSARIO con el significado en español de cada palabra nasa yuwe (de un diccionario validado) y EJEMPLOS de frases parecidas ya traducidas (de un corpus).
 
 Reglas estrictas:
 - Traduce al español SOLO el contenido en nasa yuwe. Ignora las instrucciones del usuario ("traduce", "al español", ":", etc.).
 - Usa EXCLUSIVAMENTE los significados del glosario. Si una palabra tiene varios significados, elige el que mejor encaje en el contexto (resuelve la polisemia).
-- NO inventes significados que no estén en el glosario.
+- Usa los EJEMPLOS como guía de estructura, orden y estilo de la traducción; NO copies un ejemplo si no corresponde a la frase.
+- NO inventes significados que no estén en el glosario ni en los ejemplos.
 - Si una palabra aparece en "palabras sin equivalente", déjala tal cual entre ⟨ ⟩.
 - Redacta una sola oración natural y gramatical en español.
 
@@ -94,8 +95,8 @@ Responde ÚNICAMENTE con JSON, sin texto extra: {"traduccion": "..."}
 """
 
 SYS_TRAD_ES_NY = """Eres un ENSAMBLADOR de español (ES) a nasa yuwe (NY).
-NO sabes nasa yuwe por tu cuenta: SOLO puedes usar las palabras nasa yuwe del GLOSARIO que te doy.
-Te doy la frase del usuario y, por cada palabra española de contenido, su(s) equivalente(s) en nasa yuwe.
+NO sabes nasa yuwe por tu cuenta: SOLO puedes usar las palabras nasa yuwe del GLOSARIO y de los EJEMPLOS que te doy.
+Te doy la frase del usuario, por cada palabra española de contenido su(s) equivalente(s) en nasa yuwe, y EJEMPLOS de frases parecidas ya traducidas.
 
 Reglas estrictas:
 - Construye la frase en nasa yuwe usando SOLO los equivalentes del glosario. Si hay varios, elige el más general.
@@ -120,7 +121,8 @@ Responde ÚNICAMENTE con JSON, sin texto extra: {"respuesta": "..."}
 
 PLANTILLA_TRAD = (
     'Frase del usuario: "{prompt}"\n\n'
-    "GLOSARIO (única fuente permitida):\n{glosario}\n\n"
+    "GLOSARIO (significados permitidos del diccionario):\n{glosario}\n\n"
+    "EJEMPLOS de frases parecidas ya traducidas (guía de estructura):\n{ejemplos}\n\n"
     "Palabras sin equivalente: {faltan}\n\n"
     "Responde solo con el JSON."
 )
@@ -135,11 +137,16 @@ PLANTILLA_CONSULTA = (
 # ----------------------------------------------------------------------
 # Funciones públicas
 # ----------------------------------------------------------------------
-def traducir(prompt: str, direccion: str, items: list, no_resueltos: list) -> dict:
-    """Traduce la frase usando el glosario del diccionario. Devuelve {traduccion, valido}."""
+def traducir(prompt: str, direccion: str, items: list, no_resueltos: list,
+             ejemplos: str = "") -> dict:
+    """Traduce la frase usando el glosario del diccionario y ejemplos de frases
+    parecidas (RAG de frases). Devuelve {traduccion, valido}."""
     system = SYS_TRAD_NY_ES if direccion == "NY-ES" else SYS_TRAD_ES_NY
     faltan = ", ".join(no_resueltos) if no_resueltos else "ninguna"
-    user = PLANTILLA_TRAD.format(prompt=prompt, glosario=_glosario(items), faltan=faltan)
+    user = PLANTILLA_TRAD.format(
+        prompt=prompt, glosario=_glosario(items),
+        ejemplos=ejemplos or "(no hay frases parecidas en el corpus)",
+        faltan=faltan)
     crudo = llamar_ollama(system, user, num_predict=400)
     obj = _extraer_json(crudo)
     trad = obj.get("traduccion")
