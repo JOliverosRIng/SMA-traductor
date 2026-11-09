@@ -23,7 +23,7 @@ import re
 import urllib.request
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODELO = "qwen3:1.7b"
+MODELO = "qwen3:4b"
 
 
 # ----------------------------------------------------------------------

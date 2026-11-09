@@ -164,6 +164,20 @@ def c_ensamblador(ctx: ContextoTraduccion) -> ContextoTraduccion:
     direccion = ctx.direccion or "NY-ES"
     items = _items_para_llm(ctx)
 
+    # MEMORIA DE TRADUCCIÓN: si la frase (casi) está en el corpus, se usa su
+    # traducción de oro directamente, sin pasar por el LLM. Umbral alto (0.92)
+    # para disparar solo con coincidencias casi idénticas.
+    if recuperador_frases is not None:
+        try:
+            top = recuperador_frases.buscar(_texto_origen(ctx) or ctx.prompt, direccion, k=1)
+            if top and top[0]["score"] >= 0.92:
+                ctx.texto_ensamblado = top[0]["destino"]
+                ctx.registrar("memoria_frases",
+                              f"coincidencia {top[0]['score']} (traducción del corpus)")
+                return ctx
+        except Exception as e:
+            ctx.registrar("memoria_frases", f"no disponible: {e}")
+
     # RAG de frases: recuperar ejemplos parecidos del corpus (si está disponible).
     ejemplos = ""
     if recuperador_frases is not None:
