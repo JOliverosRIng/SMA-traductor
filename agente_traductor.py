@@ -23,7 +23,7 @@ import re
 import urllib.request
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODELO = "qwen3:4b"
+MODELO = "qwen3:1.7b"
 
 
 # ----------------------------------------------------------------------
@@ -53,15 +53,22 @@ def llamar_ollama(system: str, user: str, num_predict: int = 400,
 
 
 def _extraer_json(texto: str) -> dict:
-    """Quita <think> y devuelve el primer objeto JSON del texto (o {})."""
+    """Quita <think> y devuelve el objeto JSON del texto (o {}), tolerante a ruido."""
     texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL)
-    match = re.search(r"\{.*?\}", texto, flags=re.DOTALL)
-    if not match:
-        return {}
-    try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return {}
+    texto = re.sub(r"^.*?</think>", "", texto, flags=re.DOTALL)   # <think> sin cerrar
+    match = re.search(r"\{.*\}", texto, flags=re.DOTALL)          # objeto completo (greedy)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+def _valor_clave(texto: str, clave: str):
+    """Rescata el valor de una clave aunque el JSON venga mal formado."""
+    m = re.search(r'"' + clave + r'"\s*:\s*"((?:[^"\\]|\\.)*)"', texto, flags=re.DOTALL)
+    return m.group(1).strip() if m else None
 
 
 def _glosario(items: list) -> str:
@@ -86,8 +93,10 @@ Te doy la frase del usuario, un GLOSARIO con el significado en español de cada 
 Reglas estrictas:
 - Traduce al español SOLO el contenido en nasa yuwe. Ignora las instrucciones del usuario ("traduce", "al español", ":", etc.).
 - Usa EXCLUSIVAMENTE los significados del glosario. Si una palabra tiene varios significados, elige el que mejor encaje en el contexto (resuelve la polisemia).
-- Usa los EJEMPLOS como guía de estructura, orden y estilo de la traducción; NO copies un ejemplo si no corresponde a la frase.
-- Usa las REGLAS GRAMATICALES para interpretar palabras flexionadas o afijos que no estén en el glosario (negación, tiempos, aspecto, subordinadores, etc.); no inventes más allá de lo que digan.
+- PRIORIDAD: si un EJEMPLO contiene casi las mismas palabras nasa yuwe que la frase del usuario, su traducción al español es casi con seguridad la correcta; tómala como base. Los EJEMPLOS mandan por encima de traducir palabra por palabra con el glosario (el glosario da sentidos sueltos; el ejemplo da la frase real).
+- NO copies un ejemplo si de verdad no corresponde a la frase.
+- Usa las REGLAS GRAMATICALES SOLO para interpretar afijos/formas flexionadas (negación, tiempos, aspecto, subordinadores). Son material de consulta: NUNCA copies en tu traducción palabras, ejemplos o frases que aparezcan en las reglas.
+- Si las reglas o los ejemplos no ayudan, tradúcelo con el glosario y deja entre ⟨ ⟩ lo que no sepas. Tu salida es UNA traducción al español, nunca una explicación gramatical.
 - NO inventes significados que no estén en el glosario ni en los ejemplos.
 - Si una palabra aparece en "palabras sin equivalente", déjala tal cual entre ⟨ ⟩.
 - Redacta una sola oración natural y gramatical en español.
@@ -102,7 +111,7 @@ Te doy la frase del usuario, por cada palabra española de contenido su(s) equiv
 Reglas estrictas:
 - Construye la frase en nasa yuwe usando SOLO los equivalentes del glosario. Si hay varios, elige el más general.
 - NO inventes ninguna palabra nasa yuwe. Si falta el equivalente de una palabra, déjala en español entre ⟨ ⟩.
-- Usa las REGLAS GRAMATICALES para ordenar y afijar correctamente (p. ej. qué sufijo marca negación o subordinación); no inventes afijos que no aparezcan.
+- Usa las REGLAS GRAMATICALES SOLO para ordenar y afijar (qué sufijo marca negación, subordinación, etc.). Son material de consulta: NUNCA copies en tu salida palabras, ejemplos o frases que aparezcan en las reglas, ni expliques gramática.
 - Ignora las instrucciones del usuario ("traduce", "en nasa yuwe", ":", etc.).
 - Une los equivalentes en el orden de la frase original; no garantizas la gramática del nasa yuwe.
 
@@ -152,19 +161,19 @@ def traducir(prompt: str, direccion: str, items: list, no_resueltos: list,
         ejemplos=ejemplos or "(no hay frases parecidas en el corpus)",
         reglas=reglas or "(no se recuperaron reglas)",
         faltan=faltan)
-    crudo = llamar_ollama(system, user, num_predict=400)
+    crudo = llamar_ollama(system, user, num_predict=800)
     obj = _extraer_json(crudo)
-    trad = obj.get("traduccion")
-    return {"traduccion": trad, "valido": isinstance(trad, str) and bool(trad.strip())}
+    trad = obj.get("traduccion") or _valor_clave(crudo, "traduccion")
+    return {"traduccion": trad, "valido": isinstance(trad, str) and bool(trad and trad.strip())}
 
 
 def explicar(prompt: str, direccion: str, items: list) -> dict:
     """Explica en español el significado de las palabras consultadas. Devuelve {respuesta, valido}."""
     user = PLANTILLA_CONSULTA.format(prompt=prompt, glosario=_glosario(items))
-    crudo = llamar_ollama(SYS_CONSULTA, user, num_predict=300)
+    crudo = llamar_ollama(SYS_CONSULTA, user, num_predict=500)
     obj = _extraer_json(crudo)
-    resp = obj.get("respuesta")
-    return {"respuesta": resp, "valido": isinstance(resp, str) and bool(resp.strip())}
+    resp = obj.get("respuesta") or _valor_clave(crudo, "respuesta")
+    return {"respuesta": resp, "valido": isinstance(resp, str) and bool(resp and resp.strip())}
 
 
 # ----------------------------------------------------------------------
