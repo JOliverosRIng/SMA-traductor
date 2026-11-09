@@ -1,14 +1,13 @@
 # El SISTEMA (segmentador, traductor por diccionario, orquestador, main) NO
 # requiere librerías externas: funciona con Python 3.8+ y la biblioteca estándar.
-
+#
 # El DETECTOR real usa Ollama (servidor local), que se instala aparte
 # (ollama.com) — no es un paquete de Python.
-
-# El RAG DE FRASES (recuperador_frases.py) usa scikit-learn para la similitud
-# lexica (TF-IDF de n-gramas). Si no esta instalado, el sistema sigue corriendo
-# sin ejemplos (el recuperador se desactiva solo).
-scikit-learn>=1.3
-
+#
+# Los RAG (recuperador_frases.py y recuperador_gramatica.py) ahora usan
+# indice_tfidf.py, en PYTHON PURO (biblioteca estandar). NO requieren
+# scikit-learn ni ninguna instalacion. El sistema base corre con Python 3.8+.
+#
 # Lo siguiente SOLO hace falta si vas a regenerar los datos desde el Excel
 # (scripts de preparacion que leen el .xlsx):
 pandas>=1.5

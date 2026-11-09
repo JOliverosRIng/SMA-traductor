@@ -1,0 +1,144 @@
+"""
+EVALUADOR DE TRADUCCIÓN (NY -> ES) con chrF + exactitud + análisis de cobertura.
+Proyecto: Traductor Nasa Yuwe (NY) <-> Español (ES).
+
+Qué hace:
+  - Lee pruebas/casos_traduccion.json (frases NY con su traducción de oro).
+  - HOLD-OUT: aparta esas frases del RAG y de la memoria (recuperador_frases.EXCLUIR)
+    para medir GENERALIZACIÓN, no memorización.
+  - Para cada caso: traduce con el sistema, mide chrF y exactitud, y además registra
+    la COBERTURA (qué fracción de palabras NY reconoce el diccionario) y si la
+    traducción la hizo el MODELO (Qwen) o cayó al RESPALDO determinista.
+  - Reporta el chrF global, el chrF SEPARADO por cobertura (alta vs baja), el aporte
+    sobre la línea base, y cuántos casos usaron el modelo.
+
+Por qué separar por cobertura: en frases con muchas palabras fuera del diccionario,
+ni el LLM ni los RAG pueden hacer nada (no se inventa nasa yuwe). El valor real del
+sistema se ve en las frases que sí están cubiertas.
+
+Para números reales del LLM, ten OLLAMA corriendo.
+
+Uso:
+  python pruebas/evaluar_traduccion.py
+"""
+
+import os
+import sys
+import json
+import collections
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from estado import ContextoTraduccion
+import componentes
+import recuperador_frases
+
+UMBRAL_COBERTURA = 0.5     # "alta" = al menos la mitad de las palabras NY reconocidas
+
+
+def chrf(hyp: str, ref: str, nmax: int = 6, beta: float = 2.0) -> float:
+    def grams(s, n):
+        s = "".join(s.lower().split())
+        return collections.Counter(s[i:i + n] for i in range(len(s) - n + 1))
+    precs, recs = [], []
+    for n in range(1, nmax + 1):
+        h, r = grams(hyp, n), grams(ref, n)
+        if not h or not r:
+            continue
+        inter = sum((h & r).values())
+        precs.append(inter / sum(h.values()))
+        recs.append(inter / sum(r.values()))
+    if not precs:
+        return 0.0
+    P, R = sum(precs) / len(precs), sum(recs) / len(recs)
+    if P + R == 0:
+        return 0.0
+    b2 = beta * beta
+    return 100.0 * (1 + b2) * P * R / (b2 * P + R)
+
+
+def exacta(hyp: str, ref: str) -> bool:
+    return hyp.strip().lower() == ref.strip().lower()
+
+
+def _cobertura(ctx):
+    """Fracción de palabras NY que el diccionario logró resolver."""
+    ny = [s for s in ctx.segmentos if s.get("idioma") == "NY"]
+    if not ny:
+        return 1.0
+    return sum(1 for s in ny if s.get("resuelto")) / len(ny)
+
+
+def evaluar_caso(frase_ny):
+    """Devuelve (hyp_sistema, hyp_base, cobertura, uso_modelo)."""
+    # Sistema completo
+    ctx = ContextoTraduccion(prompt=frase_ny)
+    ctx.intencion, ctx.direccion = "traducir", "NY-ES"
+    componentes.c_segmentador(ctx)
+    componentes.c_traductor(ctx)
+    cov = _cobertura(ctx)
+    componentes.c_ensamblador(ctx)
+    uso_modelo = any("(Qwen)" in t["componente"] or t["componente"].startswith("memoria")
+                     for t in ctx.traza)
+    # Línea base (palabra por palabra, sin LLM)
+    ctxb = ContextoTraduccion(prompt=frase_ny)
+    ctxb.intencion, ctxb.direccion = "traducir", "NY-ES"
+    componentes.c_segmentador(ctxb)
+    componentes.c_traductor(ctxb)
+    componentes._ensamblar_respaldo(ctxb)
+    return ctx.texto_ensamblado or "", ctxb.texto_ensamblado or "", cov, uso_modelo
+
+
+def promedio(xs):
+    return sum(xs) / len(xs) if xs else 0.0
+
+
+def main():
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "casos_traduccion.json")
+    casos = json.load(open(ruta, encoding="utf-8"))
+
+    # HOLD-OUT: el RAG y la memoria no ven las frases de prueba.
+    recuperador_frases.EXCLUIR = {recuperador_frases._norm(c["ny"]) for c in casos}
+
+    print(f"Evaluando {len(casos)} frases (hold-out, NY->ES)...\n")
+    filas = []
+    usaron_modelo = 0
+    for i, c in enumerate(casos, 1):
+        ref = c["es"]
+        hyp, base, cov, uso = evaluar_caso(c["ny"])
+        cs, cb = chrf(hyp, ref), chrf(base, ref)
+        usaron_modelo += uso
+        filas.append((cs, cb, cov, exacta(hyp, ref)))
+        tag = "Qwen" if uso else "resp"
+        print(f"[{i:02d}] chrF={cs:5.1f}(base{cb:5.1f}) cob={cov*100:3.0f}% [{tag}]  "
+              f"{c['ny'][:26]:26s} -> {hyp[:34]}")
+
+    n = len(casos)
+    altas = [(cs, cb) for cs, cb, cov, _ in filas if cov >= UMBRAL_COBERTURA]
+    bajas = [(cs, cb) for cs, cb, cov, _ in filas if cov < UMBRAL_COBERTURA]
+    exactas = sum(1 for *_, ok in filas if ok)
+
+    print("\n" + "=" * 64)
+    print("RESULTADOS (NY->ES, frases novedosas / hold-out)")
+    print("=" * 64)
+    print(f"Casos totales                : {n}")
+    print(f"Usaron el modelo (Qwen)      : {usaron_modelo}/{n}   (el resto cayó a respaldo)")
+    print(f"Cobertura media del dicc.    : {promedio([f[2] for f in filas])*100:.0f}%")
+    print("-" * 64)
+    print(f"chrF GLOBAL  — sistema {promedio([f[0] for f in filas]):5.1f} | "
+          f"base {promedio([f[1] for f in filas]):5.1f} | "
+          f"aporte {promedio([f[0] for f in filas])-promedio([f[1] for f in filas]):+4.1f}")
+    print(f"  Cobertura ALTA (>= {int(UMBRAL_COBERTURA*100)}%)  [{len(altas):2d} casos] — "
+          f"sistema {promedio([a[0] for a in altas]):5.1f} | base {promedio([a[1] for a in altas]):5.1f} | "
+          f"aporte {promedio([a[0] for a in altas])-promedio([a[1] for a in altas]):+4.1f}")
+    print(f"  Cobertura BAJA (<  {int(UMBRAL_COBERTURA*100)}%)  [{len(bajas):2d} casos] — "
+          f"sistema {promedio([b[0] for b in bajas]):5.1f} | base {promedio([b[1] for b in bajas]):5.1f} | "
+          f"aporte {promedio([b[0] for b in bajas])-promedio([b[1] for b in bajas]):+4.1f}")
+    print("-" * 64)
+    print(f"Coincidencia exacta          : {exactas}/{n} = {100*exactas/n:.1f}%")
+    print("\nLectura: el aporte del LLM+RAG se ve sobre todo en 'cobertura ALTA'.")
+    print("En 'cobertura BAJA' el diccionario no tiene las palabras: nada puede traducir.")
+
+
+if __name__ == "__main__":
+    main()

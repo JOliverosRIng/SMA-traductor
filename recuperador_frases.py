@@ -1,41 +1,28 @@
 """
-RECUPERADOR DE FRASES (RAG de frases, v1 — léxico).
+RECUPERADOR DE FRASES (RAG de frases, v1 — léxico, SIN dependencias).
 Proyecto: Traductor Nasa Yuwe (NY) <-> Español (ES).
 
 Qué hace: dada una frase de entrada, recupera del corpus las frases más
-PARECIDAS (por similitud léxica: palabras y raíces compartidas) junto con su
-traducción, para dárselas al agente traductor como EJEMPLOS (traducción basada
-en ejemplos / example-based MT).
+PARECIDAS (similitud léxica: palabras y raíces compartidas) con su traducción,
+para dárselas al agente traductor como EJEMPLOS (traducción basada en ejemplos).
 
-Por qué léxico y no embeddings (por ahora):
-  - El nasa yuwe es desconocido para los modelos de embeddings; la señal más
-    confiable para "frases parecidas" es compartir palabras/raíces.
-  - Corre en CPU, sin descargar modelos pesados, y es 100% reproducible.
-  - BGE-M3 (dense) se puede agregar después como mejora semántica.
-
-Herramienta determinista: TF-IDF de n-gramas de caracteres (scikit-learn, BSD).
-No usa Ollama.
+Usa indice_tfidf (Python puro, biblioteca estándar). Antes dependía de
+scikit-learn; ya no, para evitar problemas de instalación (scipy/DLL en Windows).
+BGE-M3 (dense) se puede agregar después como mejora semántica.
 """
 
 import os
 import csv
-import unicodedata
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel
+from indice_tfidf import IndiceTFIDF, normalizar as _norm
 
 _CARPETA = os.path.dirname(os.path.abspath(__file__))
 _RUTA = os.path.join(_CARPETA, "frases_ny_es.csv")
-_APOS = {"’": "'", "‘": "'", "ʼ": "'", "ʻ": "'"}
+
+# Frases (normalizadas) a EXCLUIR de la recuperación. Para la evaluación con
+# hold-out: se excluyen las frases de prueba. En producción queda vacío.
+EXCLUIR = set()
 
 
-def _norm(t: str) -> str:
-    t = unicodedata.normalize("NFC", str(t))
-    for a, b in _APOS.items():
-        t = t.replace(a, b)
-    return t.strip().lower()
-
-
-# ---- carga del corpus de frases ----
 def _cargar():
     ny, es = [], []
     if not os.path.exists(_RUTA):
@@ -50,44 +37,32 @@ def _cargar():
 
 
 FRASES_NY, FRASES_ES = _cargar()
-
-# ---- índices TF-IDF (uno por idioma de consulta) ----
-# n-gramas de caracteres (2-4): capturan raíces y afijos compartidos.
-def _construir_indice(textos):
-    if not textos:
-        return None, None
-    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4),
-                          preprocessor=_norm)
-    matriz = vec.fit_transform(textos)
-    return vec, matriz
+_IDX_NY = IndiceTFIDF(FRASES_NY) if FRASES_NY else None   # consultas en nasa yuwe
+_IDX_ES = IndiceTFIDF(FRASES_ES) if FRASES_ES else None   # consultas en español
 
 
-_VEC_NY, _MAT_NY = _construir_indice(FRASES_NY)   # para consultas en nasa yuwe
-_VEC_ES, _MAT_ES = _construir_indice(FRASES_ES)   # para consultas en español
-
-
-def buscar(texto: str, direccion: str = "NY-ES", k: int = 3,
-           umbral: float = 0.05, excluir_identica: bool = False):
+def buscar(texto, direccion="NY-ES", k=3, umbral=0.05, excluir_identica=False):
     """
     Recupera las k frases más parecidas a `texto`.
-    direccion "NY-ES": busca por el lado NASA YUWE  -> devuelve (ny, es).
-    direccion "ES-NY": busca por el lado ESPAÑOL    -> devuelve (es, ny).
-    Devuelve: lista de dicts {origen, destino, score} ordenada por score desc.
+    "NY-ES": busca por el lado NASA YUWE -> devuelve (ny, es).
+    "ES-NY": busca por el lado ESPAÑOL   -> devuelve (es, ny).
+    Devuelve: lista de {origen, destino, score} ordenada por score desc.
     """
     if direccion == "NY-ES":
-        vec, mat, orig, dest = _VEC_NY, _MAT_NY, FRASES_NY, FRASES_ES
+        idx, orig, dest = _IDX_NY, FRASES_NY, FRASES_ES
     else:
-        vec, mat, orig, dest = _VEC_ES, _MAT_ES, FRASES_ES, FRASES_NY
-    if vec is None:
+        idx, orig, dest = _IDX_ES, FRASES_ES, FRASES_NY
+    if idx is None:
         return []
-    q = vec.transform([texto])
-    sims = linear_kernel(q, mat)[0]
-    idx = sims.argsort()[::-1]
+    sims = idx.similitudes(texto)
+    orden = sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)
     salida = []
-    for i in idx:
+    for i in orden:
         if sims[i] < umbral:
             break
         if excluir_identica and _norm(orig[i]) == _norm(texto):
+            continue
+        if _norm(orig[i]) in EXCLUIR:                 # hold-out de evaluación
             continue
         salida.append({"origen": orig[i], "destino": dest[i],
                        "score": round(float(sims[i]), 3)})
@@ -96,7 +71,7 @@ def buscar(texto: str, direccion: str = "NY-ES", k: int = 3,
     return salida
 
 
-def ejemplos_para_prompt(texto: str, direccion: str = "NY-ES", k: int = 3) -> str:
+def ejemplos_para_prompt(texto, direccion="NY-ES", k=3):
     """Formatea los ejemplos recuperados para inyectarlos en el prompt del traductor."""
     res = buscar(texto, direccion, k=k)
     if not res:
@@ -108,8 +83,7 @@ def ejemplos_para_prompt(texto: str, direccion: str = "NY-ES", k: int = 3) -> st
 
 if __name__ == "__main__":
     print(f"Corpus de frases: {len(FRASES_NY)}")
-    pruebas = ["aka yuuk", "wala aka", "kiwe"]
-    for p in pruebas:
+    for p in ["aka yuuk", "wala aka yuuk", "yu' ate"]:
         print(f"\nConsulta NY: {p!r}")
         for r in buscar(p, "NY-ES", k=3, excluir_identica=True):
             print(f"   [{r['score']}] {r['origen']}  ->  {r['destino']}")
