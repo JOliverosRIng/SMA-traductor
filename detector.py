@@ -84,6 +84,7 @@ def llamar_modelo(prompt_usuario: str) -> str:
         "prompt": prompt_usuario,
         "stream": False,
         "think": False,            # apaga el razonamiento de Qwen3 (clave en CPU)
+        "format": "json",          # fuerza salida JSON válida (evita caídas a respaldo)
         "options": {
             "temperature": 0,      # 0 = determinista, clave para reproducibilidad
             "num_predict": 200,    # la respuesta es un JSON corto

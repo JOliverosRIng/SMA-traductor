@@ -24,6 +24,13 @@ import sys
 import json
 import collections
 
+# --- fuerza salida UTF-8 (la consola Windows cp1252 no imprime ũ, ç, etc.) ---
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 # --- permite importar los módulos del proyecto (carpeta padre) ---
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

@@ -38,6 +38,7 @@ def llamar_ollama(system: str, user: str, num_predict: int = 400,
         "prompt": user,
         "stream": False,
         "think": False,              # sin razonamiento interno: más rápido en CPU
+        "format": "json",            # fuerza salida JSON válida (evita caídas a respaldo)
         "options": {
             "temperature": 0,        # determinista -> reproducible
             "num_predict": num_predict,
