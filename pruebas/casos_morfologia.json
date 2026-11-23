@@ -1,0 +1,16 @@
+[
+  { "palabra": "yuuça'",  "raiz": "yuu",   "nota": "venir + interior + 3ps (hallazgo de la evaluación)" },
+  { "palabra": "uuça'",   "raiz": "uu",    "nota": "morir + interior + 3ps (hallazgo de la evaluación)" },
+  { "palabra": "yuuça",   "raiz": "yuu",   "nota": "venir, imperfectivo + interior" },
+  { "palabra": "yuuçgu",  "raiz": "yuu",   "nota": "venir + 2a persona" },
+  { "palabra": "yatte",   "raiz": "yat",   "nota": "casa + inesivo (en la casa)" },
+  { "palabra": "misxa's", "raiz": "misx",  "nota": "gato + objeto (al gato)" },
+  { "palabra": "wa'ta's", "raiz": "wa'ta", "nota": "montura + objeto (alomorfo -'s tras vocal)" },
+  { "palabra": "seka's",  "raiz": "sek",   "nota": "sol + objeto" },
+  { "palabra": "yatkwe",  "raiz": "yat",   "nota": "casa + diminutivo (casita)" },
+  { "palabra": "aphuça",  "raiz": "aphu",  "nota": "osar, imperfectivo + interior" },
+  { "palabra": "atheça",  "raiz": "athe",  "nota": "atrancar, imperfectivo + interior" },
+  { "palabra": "ewa",     "raiz": "ew",    "nota": "bueno, imperfectivo" },
+  { "palabra": "Puçte",   "raiz": "puç",   "nota": "borde + inesivo" },
+  { "palabra": "psxũuk",  "raiz": "psxũu", "nota": "sombra + 3ps" }
+]

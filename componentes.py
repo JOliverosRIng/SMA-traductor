@@ -88,7 +88,7 @@ def c_segmentador(ctx: ContextoTraduccion) -> ContextoTraduccion:
 def c_traductor(ctx: ContextoTraduccion) -> ContextoTraduccion:
     direccion = ctx.direccion or "NY-ES"
     idioma_origen = "NY" if direccion == "NY-ES" else "ES"
-    ok = pend = 0
+    ok = pend = morf = 0
     for s in ctx.segmentos:
         if s.get("idioma") != idioma_origen:
             continue
@@ -98,13 +98,21 @@ def c_traductor(ctx: ContextoTraduccion) -> ContextoTraduccion:
             s["alternativas"] = r["alternativas"]
             s["confianza"] = r["confianza"]
             s["resuelto"] = True
+            s["via"] = r.get("via")
+            if r.get("via") == "morfologia":
+                # palabra conjugada recuperada por la raíz: anotamos la traza
+                s["raiz"] = r.get("raiz")
+                s["marcas"] = r.get("marcas", [])
+                s["descomposicion"] = r.get("descomposicion", "")
+                morf += 1
             ok += 1
         else:
             s["traduccion"] = None
             s["resuelto"] = False
             ctx.no_resueltos.append(s["texto"])
             pend += 1
-    ctx.registrar("traductor", f"{ok} con candidatos, {pend} sin resolver")
+    extra = f" (de ellos {morf} por morfología)" if morf else ""
+    ctx.registrar("traductor", f"{ok} con candidatos, {pend} sin resolver{extra}")
     return ctx
 
 

@@ -50,10 +50,30 @@ for ny, sentidos in DICC_NY_ES.items():
             DICC_ES_NY[_norm(s)].append(ny)
 
 
-def traducir_token(token: str, direccion: str) -> dict:
+# Analizador morfológico (Paso 2): respaldo para palabras conjugadas NY->ES.
+# Import perezoso y tolerante: si el módulo o afijos.json no están, el traductor
+# sigue funcionando solo con coincidencia exacta.
+try:
+    import analizador_morfologico as _morf
+except Exception:
+    _morf = None
+
+
+def _es_raiz_ny(w: str) -> bool:
+    return _clave_ny(w) in DICC_NY_ES
+
+
+def traducir_token(token: str, direccion: str, usar_morfologia: bool = True) -> dict:
     """
     Traduce una palabra. direccion: "NY-ES" o "ES-NY".
-    Devuelve: {resuelto, traduccion, alternativas, confianza}
+    Devuelve: {resuelto, traduccion, alternativas, confianza, via, ...}
+
+    1) Coincidencia EXACTA en el diccionario (via="diccionario").
+    2) Si falla y direccion es NY-ES, intenta el ANALIZADOR MORFOLÓGICO:
+       quita afijos conocidos, busca la RAÍZ en el diccionario y, si la halla,
+       devuelve el significado de la raíz + las marcas gramaticales de los
+       afijos (via="morfologia"). Esto recupera formas conjugadas como
+       yuuça' -> yuu "venir".
     """
     if direccion == "NY-ES":
         k = _clave_ny(token)
@@ -68,11 +88,44 @@ def traducir_token(token: str, direccion: str) -> dict:
             "traduccion": candidatos[0],          # principal
             "alternativas": candidatos[1:],       # otros significados
             "confianza": 1.0 if len(candidatos) == 1 else 0.5,
+            "via": "diccionario",
         }
-    return {"resuelto": False, "traduccion": None, "alternativas": [], "confianza": 0.0}
+
+    # ---- Respaldo morfológico (solo NY->ES) ----
+    if usar_morfologia and direccion == "NY-ES" and _morf is not None:
+        try:
+            a = _morf.analizar(token, _es_raiz_ny)
+        except Exception:
+            a = {"resuelto": False}
+        if a.get("resuelto") and a.get("n_afijos", 0) > 0:
+            sentidos = DICC_NY_ES.get(_clave_ny(a["raiz"]), [])
+            if sentidos:
+                return {
+                    "resuelto": True,
+                    "traduccion": sentidos[0],
+                    "alternativas": sentidos[1:],
+                    "confianza": a.get("confianza", 0.5),
+                    "via": "morfologia",
+                    "raiz": a["raiz"],
+                    "marcas": a.get("marcas", []),
+                    "descomposicion": a.get("descomposicion", ""),
+                }
+
+    return {"resuelto": False, "traduccion": None, "alternativas": [],
+            "confianza": 0.0, "via": None}
 
 
 if __name__ == "__main__":
     print("Diccionario cargado:", len(DICC_NY_ES), "palabras NY")
+    print("Analizador morfológico:", "activo" if _morf else "no disponible")
+    print("\n-- Coincidencia exacta --")
     for t, d in [("aka", "NY-ES"), ("akh", "NY-ES"), ("hola", "ES-NY"), ("agua", "ES-NY")]:
-        print(f"\n{t} ({d}):", traducir_token(t, d))
+        print(f"  {t} ({d}):", traducir_token(t, d))
+    print("\n-- Respaldo morfológico (palabras conjugadas NY->ES) --")
+    for t in ["yuuça'", "uuça'", "yatte", "misxa's", "umuth"]:
+        r = traducir_token(t, "NY-ES")
+        if r["resuelto"] and r.get("via") == "morfologia":
+            print(f"  {t:10} -> {r['traduccion']!r}  (raíz={r['raiz']}, "
+                  f"marcas={r.get('marcas')}, conf={r['confianza']})")
+        else:
+            print(f"  {t:10} -> {r}")
