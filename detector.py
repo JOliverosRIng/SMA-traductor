@@ -116,6 +116,44 @@ def extraer_json(texto: str) -> dict:
 
 
 # ----------------------------------------------------------------------
+# Guarda determinista de la DIRECCIÓN (corrige al modelo con pistas seguras)
+# ----------------------------------------------------------------------
+# El modelo 1.7b acierta la INTENCIÓN muy bien, pero a veces falla la DIRECCIÓN
+# en las consultas: "qué significa X" o "... en castellano" debería ser NY-ES
+# (respuesta en español) y el modelo responde ES-NY. Aquí aplicamos reglas de
+# ALTA PRECISIÓN sobre el texto del usuario; solo corrigen cuando hay una pista
+# inequívoca, y si no, se respeta lo que dijo el modelo.
+import unicodedata as _ud
+
+
+def _plegar(t: str) -> str:
+    """Minúsculas y sin acentos, para casar pistas sin preocuparse por tildes/ñ."""
+    t = _ud.normalize("NFKD", str(t).lower())
+    return "".join(c for c in t if not _ud.combining(c))
+
+
+# Idioma de SALIDA explícito (lo que el usuario quiere RECIBIR).
+_SALIDA_NASA = ("en nasa", "al nasa", "a nasa yuwe", "en nasayuwe",
+                "en la lengua nasa", "a la lengua nasa")                 # -> ES-NY
+_SALIDA_ESP = ("al espanol", "a espanol", "en espanol",
+               "al castellano", "a castellano", "en castellano")        # -> NY-ES
+# Preguntar el SIGNIFICADO de algo se responde en español (salvo que pidan NY).
+_SIGNIFICADO = ("que significa", "que quiere decir", "significado de", "que es ")
+
+
+def _corregir_direccion(prompt: str, direccion):
+    """Devuelve la dirección corregida por pistas seguras, o la original si no hay."""
+    t = _plegar(prompt)
+    if any(p in t for p in _SALIDA_NASA):      # pide salida en nasa yuwe
+        return "ES-NY"
+    if any(p in t for p in _SALIDA_ESP):       # pide salida en español
+        return "NY-ES"
+    if any(p in t for p in _SIGNIFICADO):      # pregunta el significado -> español
+        return "NY-ES"
+    return direccion
+
+
+# ----------------------------------------------------------------------
 # Validación de la salida
 # ----------------------------------------------------------------------
 INTENCIONES = {"traducir", "consultar"}
@@ -136,6 +174,8 @@ def detectar(prompt_usuario: str) -> dict:
     """Punto de entrada: recibe el prompt y devuelve {intencion, direccion, valido}."""
     texto_modelo = llamar_modelo(PLANTILLA_USUARIO.format(prompt=prompt_usuario))
     obj = extraer_json(texto_modelo)
+    # Corrección determinista de la dirección (alta precisión) antes de validar.
+    obj["direccion"] = _corregir_direccion(prompt_usuario, obj.get("direccion"))
     return validar(obj)
 
 
